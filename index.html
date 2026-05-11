@@ -15,29 +15,36 @@ body {
 }
 
 h2 {
-  margin-top: 24px;
-  border-bottom: 1px solid #333;
-  padding-bottom: 4px;
-}
-
-#filters {
-  margin-bottom: 16px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-label {
+  margin: 0;
+  padding: 10px;
+  cursor: pointer;
   background: #1c1c1c;
-  padding: 6px 10px;
   border-radius: 6px;
-  font-size: 14px;
+  user-select: none;
+}
+
+.section {
+  margin-top: 16px;
+}
+
+.section.collapsed .weapon-grid {
+  display: none;
+}
+
+#search {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 16px;
+  font-size: 16px;
+  border-radius: 6px;
+  border: none;
 }
 
 .weapon-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, 140px);
   gap: 12px;
+  margin-top: 10px;
 }
 
 .weapon-card {
@@ -92,32 +99,28 @@ label {
 
 <h1>Weapon Stats</h1>
 
-<div id="filters"></div>
+<input id="search" placeholder="Search weapons..." />
+
 <div id="weapons"></div>
 
 <script>
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTGlBhM2phLsu16Kgj0rOg-IaqMRLMNLYaowGHYoLHp5jvIkADZzOkGQP9PO82mrqRZ72EV4-d7D4VT/pub?gid=0&single=true&output=csv";
 
 let weapons = [];
-let activeTypes = new Set();
 
 fetch(SHEET_URL)
-  .then(res => res.text())
+  .then(r => r.text())
   .then(csv => {
     weapons = parseCSV(csv);
-    initTypeFilters();
     render();
-  })
-  .catch(err => {
-    document.body.innerHTML += "<p style='color:red'>Failed to load sheet</p>";
-    console.error(err);
   });
+
+/* ---------------- CSV + SCHEMA ---------------- */
 
 function parseCSV(csv) {
   const rows = csv.trim().split("\n").map(r => r.split(","));
   const headers = rows[0];
 
-  // ---- Build schema map ----
   const baseMap = new Map();
   const scaleMap = new Map();
 
@@ -127,103 +130,102 @@ function parseCSV(csv) {
     const clean = h.trim();
 
     if (clean.toLowerCase().endsWith("base")) {
-      const key = clean.replace(/base$/i, "").trim();
-      baseMap.set(key, i);
+      baseMap.set(clean.replace(/base$/i, "").trim(), i);
     }
-
     if (clean.toLowerCase().endsWith("scale")) {
-      const key = clean.replace(/scale$/i, "").trim();
-      scaleMap.set(key, i);
+      scaleMap.set(clean.replace(/scale$/i, "").trim(), i);
     }
   });
 
-  // ---- Parse rows ----
   return rows.slice(1).map(row => {
+    const name = (row[0] || "").trim();
+    const sprite = row[1];
+    const type = (row[2] || "").trim();
+    const rawLevel = Number(row[3]) || 0;
+
+    const isWooden = name.toLowerCase().includes("wooden");
+    const displayLevel = isWooden ? rawLevel * 5 : rawLevel;
+
     const w = {
-      name: row[0],
-      sprite: row[1],
-      type: row[2],
-      level: Number(row[3]) || 0,
+      name,
+      sprite,
+      type,
+      level: rawLevel,
+      displayLevel,
+      isWooden,
       cost: Number(row[4]) || 0,
       damage: []
     };
 
-    // ---- Match schema pairs ----
-    const allKeys = new Set([
-      ...baseMap.keys(),
-      ...scaleMap.keys()
-    ]);
+    // skip blank types entirely
+    if (!type) return w;
 
-    allKeys.forEach(key => {
-      const baseIdx = baseMap.get(key);
-      const scaleIdx = scaleMap.get(key);
+    const keys = new Set([...baseMap.keys(), ...scaleMap.keys()]);
 
-      if (baseIdx == null && scaleIdx == null) return;
+    keys.forEach(k => {
+      const b = baseMap.get(k);
+      const s = scaleMap.get(k);
 
-      const base = baseIdx != null ? Number(row[baseIdx]) || 0 : 0;
-      const scale = scaleIdx != null ? Number(row[scaleIdx]) || 0 : 0;
+      const base = b != null ? Number(row[b]) || 0 : 0;
+      const scale = s != null ? Number(row[s]) || 0 : 0;
 
       if (base === 0 && scale === 0) return;
 
-      const total = base + scale * w.level;
-
       w.damage.push({
-        type: key,
+        type: k,
         base,
         scale,
-        total
+        total: base + scale * (rawLevel-1) // IMPORTANT: NOT displayLevel
       });
     });
 
     return w;
-  });
+  }).filter(w => w.type); // remove blank types
 }
 
-function initTypeFilters() {
-  const types = [...new Set(weapons.map(w => w.type))];
-  const container = document.getElementById("filters");
+/* ---------------- SEARCH ---------------- */
 
-  types.forEach(type => {
-    activeTypes.add(type);
+document.getElementById("search").addEventListener("input", render);
 
-    const label = document.createElement("label");
+function matchesSearch(w, q) {
+  if (!q) return true;
+  q = q.toLowerCase();
 
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = true;
-
-    cb.onchange = () => {
-      if (cb.checked) activeTypes.add(type);
-      else activeTypes.delete(type);
-      render();
-    };
-
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(" " + type));
-
-    container.appendChild(label);
-  });
+  return (
+    w.name.toLowerCase().includes(q) ||
+    w.type.toLowerCase().includes(q) ||
+    w.sprite.toLowerCase().includes(q) ||
+    w.damage.some(d => d.type.toLowerCase().includes(q))
+  );
 }
+
+/* ---------------- RENDER ---------------- */
 
 function render() {
   const container = document.getElementById("weapons");
   container.innerHTML = "";
 
+  const query = document.getElementById("search").value;
+
   const grouped = {};
 
   weapons
-    .filter(w => activeTypes.has(w.type))
+    .filter(w => w.type && matchesSearch(w, query))
     .forEach(w => {
       if (!grouped[w.type]) grouped[w.type] = [];
       grouped[w.type].push(w);
     });
 
-  for (const type in grouped) {
+  Object.keys(grouped).forEach(type => {
     const section = document.createElement("div");
+    section.className = "section";
 
     const title = document.createElement("h2");
     title.textContent = type;
-    section.appendChild(title);
+
+    title.onclick = () => {
+      section.classList.toggle("collapsed");
+    };
 
     const grid = document.createElement("div");
     grid.className = "weapon-grid";
@@ -232,10 +234,13 @@ function render() {
       grid.appendChild(createCard(w));
     });
 
+    section.appendChild(title);
     section.appendChild(grid);
     container.appendChild(section);
-  }
+  });
 }
+
+/* ---------------- CARD ---------------- */
 
 function createCard(w) {
   const card = document.createElement("div");
@@ -249,7 +254,7 @@ function createCard(w) {
 
   const level = document.createElement("div");
   level.className = "level-badge";
-  level.textContent = w.level;
+  level.textContent = w.displayLevel;
 
   spriteWrap.appendChild(img);
   spriteWrap.appendChild(level);
@@ -263,12 +268,35 @@ function createCard(w) {
 
   w.damage.forEach(d => {
     const line = document.createElement("div");
+    line.style.marginTop = "4px";
+    line.style.fontWeight = "bold";
+    line.style.color = "#dddddd";
+    const scaled = d.scale * (w.level-1);
 
-    line.textContent =
-      `${d.total} ${d.type} (${d.base} + ${d.scale * w.level})`;
+    if (w.isWooden) {
+      line.textContent = `${d.total} ${d.type}`;
+    } else if (d.scale > 0) {
+      line.textContent = `${d.total} ${d.type} (${d.base} + ${scaled})`;
+    } else {
+      line.textContent = `${d.total} ${d.type}`;
+    }
 
     dmg.appendChild(line);
   });
+
+  // ---------------- RESOURCE COST ----------------
+  const costLine = document.createElement("div");
+  costLine.style.marginTop = "4px";
+  costLine.style.fontWeight = "bold";
+  costLine.style.color = "#ffd27a";
+
+  if ((w.type || "").toLowerCase() === "magic") {
+    costLine.textContent = `Eitr: ${w.cost}`;
+  } else {
+    costLine.textContent = `Stamina: ${w.cost}`;
+  }
+
+  dmg.appendChild(costLine);
 
   card.appendChild(spriteWrap);
   card.appendChild(name);

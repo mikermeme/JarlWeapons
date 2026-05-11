@@ -1,19 +1,246 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Weapon Database</title>
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Weapon Stats</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #0f0f0f;
+  color: #fff;
+  margin: 0;
+  padding: 16px;
+}
+
+h2 {
+  margin-top: 24px;
+  border-bottom: 1px solid #333;
+  padding-bottom: 4px;
+}
+
+#filters {
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+label {
+  background: #1c1c1c;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.weapon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 140px);
+  gap: 12px;
+}
+
+.weapon-card {
+  border: 1px solid #333;
+  padding: 8px;
+  background: #181818;
+  border-radius: 8px;
+}
+
+.sprite-wrap {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  margin: auto;
+}
+
+.sprite-wrap img {
+  width: 64px;
+  height: 64px;
+  image-rendering: pixelated;
+}
+
+.level-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: gold;
+  color: black;
+  font-size: 12px;
+  padding: 2px 5px;
+  border-radius: 6px;
+  font-weight: bold;
+}
+
+.weapon-name {
+  text-align: center;
+  margin-top: 6px;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.damage-list {
+  font-size: 12px;
+  margin-top: 6px;
+  line-height: 1.4em;
+  color: #ccc;
+}
+</style>
 </head>
+
 <body>
 
-<h1>Weapons</h1>
+<h1>Weapon Stats</h1>
 
 <div id="filters"></div>
+<div id="weapons"></div>
 
-<div id="weaponContainer"></div>
+<script>
+const SHEET_URL = "YOUR_CSV_URL_HERE";
 
-<script src="app.js"></script>
+let weapons = [];
+let activeTypes = new Set();
+
+fetch(SHEET_URL)
+  .then(res => res.text())
+  .then(csv => {
+    weapons = parseCSV(csv);
+    initTypeFilters();
+    render();
+  })
+  .catch(err => {
+    document.body.innerHTML += "<p style='color:red'>Failed to load sheet</p>";
+    console.error(err);
+  });
+
+function parseCSV(csv) {
+  const rows = csv.trim().split("\n").map(r => r.split(","));
+  const headers = rows[0];
+
+  return rows.slice(1).map(row => {
+    const w = {
+      name: row[0],
+      sprite: row[1],
+      type: row[2],
+      level: Number(row[3]) || 0,
+      cost: Number(row[4]) || 0,
+      damage: []
+    };
+
+    for (let i = 5; i < headers.length; i += 2) {
+      const type = headers[i].replace(" Base", "").trim();
+      const base = Number(row[i]) || 0;
+      const scale = Number(row[i + 1]) || 0;
+
+      if (base !== 0 || scale !== 0) {
+        w.damage.push({
+          type,
+          base,
+          scale,
+          total: base + scale * w.level
+        });
+      }
+    }
+
+    return w;
+  });
+}
+
+function initTypeFilters() {
+  const types = [...new Set(weapons.map(w => w.type))];
+  const container = document.getElementById("filters");
+
+  types.forEach(type => {
+    activeTypes.add(type);
+
+    const label = document.createElement("label");
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = true;
+
+    cb.onchange = () => {
+      if (cb.checked) activeTypes.add(type);
+      else activeTypes.delete(type);
+      render();
+    };
+
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(" " + type));
+
+    container.appendChild(label);
+  });
+}
+
+function render() {
+  const container = document.getElementById("weapons");
+  container.innerHTML = "";
+
+  const grouped = {};
+
+  weapons
+    .filter(w => activeTypes.has(w.type))
+    .forEach(w => {
+      if (!grouped[w.type]) grouped[w.type] = [];
+      grouped[w.type].push(w);
+    });
+
+  for (const type in grouped) {
+    const section = document.createElement("div");
+
+    const title = document.createElement("h2");
+    title.textContent = type;
+    section.appendChild(title);
+
+    const grid = document.createElement("div");
+    grid.className = "weapon-grid";
+
+    grouped[type].forEach(w => {
+      grid.appendChild(createCard(w));
+    });
+
+    section.appendChild(grid);
+    container.appendChild(section);
+  }
+}
+
+function createCard(w) {
+  const card = document.createElement("div");
+  card.className = "weapon-card";
+
+  const spriteWrap = document.createElement("div");
+  spriteWrap.className = "sprite-wrap";
+
+  const img = document.createElement("img");
+  img.src = `sprites/${w.sprite}.png`;
+
+  const level = document.createElement("div");
+  level.className = "level-badge";
+  level.textContent = w.level;
+
+  spriteWrap.appendChild(img);
+  spriteWrap.appendChild(level);
+
+  const name = document.createElement("div");
+  name.className = "weapon-name";
+  name.textContent = w.name;
+
+  const dmg = document.createElement("div");
+  dmg.className = "damage-list";
+
+  w.damage.forEach(d => {
+    const line = document.createElement("div");
+    line.textContent = `${d.total} ${d.type} (${d.base} + ${d.scale * w.level})`;
+    dmg.appendChild(line);
+  });
+
+  card.appendChild(spriteWrap);
+  card.appendChild(name);
+  card.appendChild(dmg);
+
+  return card;
+}
+</script>
 
 </body>
 </html>

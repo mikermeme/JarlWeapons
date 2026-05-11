@@ -117,6 +117,27 @@ function parseCSV(csv) {
   const rows = csv.trim().split("\n").map(r => r.split(","));
   const headers = rows[0];
 
+  // ---- Build schema map ----
+  const baseMap = new Map();
+  const scaleMap = new Map();
+
+  headers.forEach((h, i) => {
+    if (!h) return;
+
+    const clean = h.trim();
+
+    if (clean.toLowerCase().endsWith("base")) {
+      const key = clean.replace(/base$/i, "").trim();
+      baseMap.set(key, i);
+    }
+
+    if (clean.toLowerCase().endsWith("scale")) {
+      const key = clean.replace(/scale$/i, "").trim();
+      scaleMap.set(key, i);
+    }
+  });
+
+  // ---- Parse rows ----
   return rows.slice(1).map(row => {
     const w = {
       name: row[0],
@@ -127,30 +148,32 @@ function parseCSV(csv) {
       damage: []
     };
 
-    // Start at column F (index 5)
-    for (let i = 5; i < headers.length; i += 2) {
-      const rawBaseHeader = headers[i];
-      const rawScaleHeader = headers[i + 1];
+    // ---- Match schema pairs ----
+    const allKeys = new Set([
+      ...baseMap.keys(),
+      ...scaleMap.keys()
+    ]);
 
-      if (!rawBaseHeader || !rawScaleHeader) continue;
+    allKeys.forEach(key => {
+      const baseIdx = baseMap.get(key);
+      const scaleIdx = scaleMap.get(key);
 
-      // Strip "Base" and "Scale"
-      const type = rawBaseHeader.replace(/Base/i, "").trim();
+      if (baseIdx == null && scaleIdx == null) return;
 
-      const base = Number(row[i]) || 0;
-      const scale = Number(row[i + 1]) || 0;
+      const base = baseIdx != null ? Number(row[baseIdx]) || 0 : 0;
+      const scale = scaleIdx != null ? Number(row[scaleIdx]) || 0 : 0;
 
-      if (base !== 0 || scale !== 0) {
-        const total = base + scale * w.level;
+      if (base === 0 && scale === 0) return;
 
-        w.damage.push({
-          type,
-          base,
-          scale,
-          total
-        });
-      }
-    }
+      const total = base + scale * w.level;
+
+      w.damage.push({
+        type: key,
+        base,
+        scale,
+        total
+      });
+    });
 
     return w;
   });

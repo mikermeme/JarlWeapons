@@ -127,17 +127,27 @@ function parseCSV(csv) {
       damage: []
     };
 
+    // Start at column F (index 5)
     for (let i = 5; i < headers.length; i += 2) {
-      const type = headers[i].replace(" Base", "").trim();
+      const rawBaseHeader = headers[i];
+      const rawScaleHeader = headers[i + 1];
+
+      if (!rawBaseHeader || !rawScaleHeader) continue;
+
+      // Strip "Base" and "Scale"
+      const type = rawBaseHeader.replace(/Base/i, "").trim();
+
       const base = Number(row[i]) || 0;
       const scale = Number(row[i + 1]) || 0;
 
       if (base !== 0 || scale !== 0) {
+        const total = base + scale * w.level;
+
         w.damage.push({
           type,
           base,
           scale,
-          total: base + scale * w.level
+          total
         });
       }
     }
@@ -230,7 +240,10 @@ function createCard(w) {
 
   w.damage.forEach(d => {
     const line = document.createElement("div");
-    line.textContent = `${d.total} ${d.type} (${d.base} + ${d.scale * w.level})`;
+
+    line.textContent =
+      `${d.total} ${d.type} (${d.base} + ${d.scale * w.level})`;
+
     dmg.appendChild(line);
   });
 

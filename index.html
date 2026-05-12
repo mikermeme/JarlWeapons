@@ -23,6 +23,15 @@ h2 {
   user-select: none;
 }
 
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
 .section {
   margin-top: 16px;
   margin-right: 18px;
@@ -43,9 +52,14 @@ h2 {
 
 .weapon-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 140px);
+
+  grid-template-columns:
+    repeat(auto-fit, minmax(140px, 1fr));
+
   gap: 12px;
   margin-top: 10px;
+
+  width: 100%;
 }
 
 .weapon-card {
@@ -257,7 +271,20 @@ function render() {
     title.textContent = type;
 
     title.onclick = () => {
-      section.classList.toggle("collapsed");
+      const allSections = [...document.querySelectorAll(".section")];
+
+      // Sections visually sharing the same row
+      const sameRow = allSections.filter(
+        s => s.offsetTop === section.offsetTop
+      );
+
+      // Determine whether to collapse or expand
+      const shouldCollapse =
+        !section.classList.contains("collapsed");
+
+      sameRow.forEach(s => {
+        s.classList.toggle("collapsed", shouldCollapse);
+      });
     };
 
     const grid = document.createElement("div");

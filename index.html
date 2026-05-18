@@ -112,6 +112,8 @@ html, body {
 }
 
 .weapon-card {
+  position: relative;
+  
   border: 1px solid #333;
   padding: 10px;
   background: #181818;
@@ -304,89 +306,99 @@ const spriteIndexMap = {
   "THSwordSlayer_Lightning":89,
   "THSwordSlayer_Nature":90,
 };
-
-const SPRITE_SIZE = 64;
 const DISPLAY_SIZE = 96;
 const SPRITES_PER_ROW = 10;
 let weapons = [];
 
-fetch(SHEET_URL)
-  .then(r => r.text())
-  .then(csv => {
-    weapons = parseCSV(csv);
+fetch("./jarlweapons.json")
+  .then(r => r.json())
+  .then(data => {
 
+    weapons = data
+      .map(transformWeapon)
+      .filter(w => w.type); // remove blank types
     requestAnimationFrame(() => {
       render();
       document.getElementById("loading").style.display = "none";
     });
   });
 
-/* ---------------- CSV + SCHEMA ---------------- */
+function transformWeapon(raw) {
 
-function parseCSV(csv) {
-  const rows = csv.trim().split("\n").map(r => r.split(","));
-  const headers = rows[0];
+  const rawLevel = Number(raw.Level || raw.level || 0);
 
-  const baseMap = new Map();
-  const scaleMap = new Map();
+  const name =
+    (raw.Name || raw.name || "").trim();
 
-  headers.forEach((h, i) => {
-    if (!h) return;
+  const type =
+    (raw.Type || raw.type || "").trim();
 
-    const clean = h.trim();
+  const sprite =
+    raw["Sprite Name"] ||
+    raw.sprite ||
+    "";
 
-    if (clean.toLowerCase().endsWith("base")) {
-      baseMap.set(clean.replace(/base$/i, "").trim(), i);
-    }
-    if (clean.toLowerCase().endsWith("scale")) {
-      scaleMap.set(clean.replace(/scale$/i, "").trim(), i);
-    }
+  const cost =
+    Number(
+      raw["Resource Cost"] ||
+      raw.cost ||
+      0
+    );
+
+  const nostalgia =
+    /^true$/i.test(raw["nostalgia"]) ||
+    /^true$/i.test(raw.nostalgia) ||
+    false;
+
+  const isWooden =
+    name.toLowerCase().includes("wooden");
+
+  const displayLevel =
+    isWooden ? rawLevel * 5 : rawLevel;
+
+  const w = {
+    name,
+    sprite,
+    type,
+    level: rawLevel,
+    displayLevel,
+    isWooden,
+    cost,
+    nostalgia,
+    damage: []
+  };
+
+  /* ---------------- DAMAGE SCHEMA ---------------- */
+
+  Object.keys(raw).forEach(key => {
+
+    if (!key.toLowerCase().endsWith("base"))
+      return;
+
+    const damageType =
+      key.replace(/base$/i, "").trim();
+
+    const scaleKey =
+      `${damageType}Scale`;
+
+    const base =
+      Number(raw[key]) || 0;
+
+    const scale =
+      Number(raw[scaleKey]) || 0;
+
+    if (base === 0 && scale === 0)
+      return;
+
+    w.damage.push({
+      type: damageType,
+      base,
+      scale,
+      total: base + scale * (rawLevel - 1)
+    });
   });
 
-  return rows.slice(1).map(row => {
-    const name = (row[0] || "").trim();
-    const sprite = row[1];
-    const type = (row[2] || "").trim();
-    const rawLevel = Number(row[3]) || 0;
-
-    const isWooden = name.toLowerCase().includes("wooden");
-    const displayLevel = isWooden ? rawLevel * 5 : rawLevel;
-
-    const w = {
-      name,
-      sprite,
-      type,
-      level: rawLevel,
-      displayLevel,
-      isWooden,
-      cost: Number(row[4]) || 0,
-      damage: []
-    };
-
-    // skip blank types entirely
-    if (!type) return w;
-
-    const keys = new Set([...baseMap.keys(), ...scaleMap.keys()]);
-
-    keys.forEach(k => {
-      const b = baseMap.get(k);
-      const s = scaleMap.get(k);
-
-      const base = b != null ? Number(row[b]) || 0 : 0;
-      const scale = s != null ? Number(row[s]) || 0 : 0;
-
-      if (base === 0 && scale === 0) return;
-
-      w.damage.push({
-        type: k,
-        base,
-        scale,
-        total: base + scale * (rawLevel-1) // IMPORTANT: NOT displayLevel
-      });
-    });
-
-    return w;
-  }).filter(w => w.type); // remove blank types
+  return w;
 }
 
 /* ---------------- SEARCH ---------------- */
@@ -395,8 +407,15 @@ document.getElementById("search").addEventListener("input", render);
 
 function matchesSearch(w, q) {
   if (!q) return true;
-  q = q.toLowerCase();
 
+  q = q.toLowerCase().trim();
+
+  // ---------------- SPECIAL FILTER ----------------
+  if ("nostalgia".startsWith(q)) {
+    return w.nostalgia === true;
+  }
+
+  // ---------------- NORMAL SEARCH ----------------
   return (
     w.name.toLowerCase().includes(q) ||
     w.type.toLowerCase().includes(q) ||
@@ -498,7 +517,7 @@ function createCard(w) {
   const level = document.createElement("div");
   level.className = "level-badge";
   level.textContent = w.displayLevel;
-
+  
   spriteWrap.appendChild(sprite);
   spriteWrap.appendChild(level);
 
